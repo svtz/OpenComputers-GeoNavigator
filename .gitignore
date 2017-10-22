@@ -1,0 +1,5 @@
+/server/.vs
+bin
+obj
+*.user
+/server/packages
