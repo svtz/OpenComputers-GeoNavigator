@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
+using GeoNavigator.Hardness;
+using GeoNavigator.Server;
 using Microsoft.AspNetCore.Mvc;
 
 namespace GeoNavigator.Controllers
@@ -9,6 +9,8 @@ namespace GeoNavigator.Controllers
     [Route("api/[controller]")]
     public class ValuesController : Controller
     {
+        private static readonly HardnessRepository _hardnessRepository = new HardnessRepository();
+
         // GET api/values
         [HttpGet]
         public IEnumerable<string> Get()
@@ -25,13 +27,41 @@ namespace GeoNavigator.Controllers
 
         // POST api/values
         [HttpPost]
-        public void Post([FromBody]PointValue[] value)
+        public void Post([FromBody]HardnessData data)
         {
-            if (value != null)
-                foreach (var point in value)
+            var values = new List<PointValue>(data.HardnessValues.Length);
+
+            using (var valuesEnumerator = ((IEnumerable<double>)data.HardnessValues).GetEnumerator())
+            {
+                const long chunkSize = 16;
+                for (var x = data.StartX; x < data.StartX + 1; x += data.Step)
+                for (var z = data.StartZ; z < data.StartZ + chunkSize; z += data.Step)
+                for (var y = data.StartY; y > Math.Max(1, data.StartY - 64); y--)
                 {
-                    Console.WriteLine($"{point.PosX}; {point.PosY}; {point.PosZ} == {point.Hardness}");
+                    if (!valuesEnumerator.MoveNext())
+                    {
+                        Console.WriteLine("Error not enough hardness values");
+                        return;
+                    }
+
+                    values.Add(new PointValue()
+                    {
+                        Hardness = valuesEnumerator.Current,
+                        PosX = x,
+                        PosZ = z,
+                        PosY = y
+                    });
                 }
+
+                if (valuesEnumerator.MoveNext())
+                {
+                    Console.WriteLine("Too many hardness values");
+                    return;
+                }
+
+                _hardnessRepository.StoreHardness(values);
+                Console.WriteLine("OK");
+            }
         }
 
         // PUT api/values/5
@@ -47,13 +77,12 @@ namespace GeoNavigator.Controllers
         }
     }
 
-    public class PointValue
+    public class HardnessData
     {
-        public long PosX { get; set; }
-        public long PosZ { get; set; }
-        public long PosY { get; set; }
-            
-        public double Hardness { get; set; }
+        public long StartX { get; set; }
+        public long StartY { get; set; }
+        public long StartZ { get; set; }
+        public long Step { get; set; }
+        public double[] HardnessValues { get; set; }
     }
-
 }
