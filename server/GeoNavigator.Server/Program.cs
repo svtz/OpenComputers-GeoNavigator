@@ -31,9 +31,6 @@ namespace GeoNavigator.Server
         private static IWebHostBuilder CreateWebHostBuilder(string[] args) =>
             WebHost
                 .CreateDefaultBuilder(args)
-                .UseStartup<Startup>()
-                .UseUrls("http://localhost:7777;http://svtz.ru:7777");
-
-
+                .UseStartup<Startup>();
     }
 }

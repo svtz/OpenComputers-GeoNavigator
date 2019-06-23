@@ -1,11 +1,20 @@
 local event = require "event"
 local component = require "component"
 local internet = require "internet"
-local serverUrl = "http://svtz.ru:7777/api/"
+
 local computer = component.computer
 local term = require "term"
 local colors = require "colors"
 local gpu = component.gpu
+
+local function readAll(file)
+    local f = assert(io.open(file, "rb"))
+    local content = f:read("*all")
+    f:close()
+    return content
+end
+
+local serverUrl = readAll(server-url)
 
 local char_space = string.byte(" ")
 local char_x = string.byte("x")
