@@ -8,13 +8,13 @@ local colors = require "colors"
 local gpu = component.gpu
 
 local function readAll(file)
-    local f = assert(io.open(file, "rb"))
+    local f = assert(io.open(file, "r"))
     local content = f:read("*all")
     f:close()
     return content
 end
 
-local serverUrl = readAll(server-url)
+local serverUrl = readAll('server-url'):sub(1, -2)
 
 local char_space = string.byte(" ")
 local char_x = string.byte("x")
