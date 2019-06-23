@@ -3,28 +3,37 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using GeoNavigator.Server.InitialData;
+using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace GeoNavigator.Server
 {
-    class Program
+   public class Program
     {
-        public static void Main(string[] args)
+        public static async Task Main(string[] args)
         {
-            var hosting = new ConfigurationBuilder()
-                .SetBasePath(Directory.GetCurrentDirectory())
-                .AddJsonFile("hosting.json", optional: false, reloadOnChange: false)
-                .Build();
+            var webHost = CreateWebHostBuilder(args).Build();
+            using (var scope = webHost.Services.CreateScope())
+            using (var context = scope.ServiceProvider.GetRequiredService<GeoContext>())
+            {
+                await context.Database.MigrateAsync();
+                new VeinsConfiguration(context).Initialize();
+            }
 
-            var host = new WebHostBuilder()
-                .UseConfiguration(hosting)
-                .UseKestrel()
-                .UseContentRoot(Directory.GetCurrentDirectory())
-                .UseStartup<Startup>()
-                .Build();
-
-            host.Run();
+            await webHost.RunAsync();
         }
+
+        private static IWebHostBuilder CreateWebHostBuilder(string[] args) =>
+            WebHost
+                .CreateDefaultBuilder(args)
+                .UseStartup<Startup>()
+                .UseUrls("http://localhost:7777;http://svtz.ru:7777");
+
+
     }
 }

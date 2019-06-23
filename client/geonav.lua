@@ -1,18 +1,126 @@
 local event = require "event"
 local component = require "component"
-local serialization = require "serialization"
 local internet = require "internet"
-local serverUrl = "http://svtz.ru:7777/api/values"
-local geo = component.geolyzer
+local serverUrl = "http://svtz.ru:7777/api/"
 local computer = component.computer
-local chunkSize = 16
-local scanSize = 64
-local step = 4
-local antiNoise = 4
+local term = require "term"
+local colors = require "colors"
+local gpu = component.gpu
 
 local char_space = string.byte(" ")
+local char_x = string.byte("x")
+local char_s = string.byte("s")
 local char_f = string.byte("f")
-local running = true -- state variable so the loop can terminate
+
+local running = true
+local userInput = false
+
+local states = {
+  sendBlock = "sendBlock",
+  find = "find"
+}
+local state = states.sendBlock
+
+local dimensions = {
+  "Overworld",
+  "Nether",
+  "End",
+  "Moon",
+  "Mars",
+  "Asteroids"
+}
+local currentDimension = dimensions[1]
+
+local ores = {
+  Apatite = "Apatite",
+  Almandine = "Almandine",
+  Aluminium = "Aluminium",
+  BandedIron = "BandedIron",
+  Bastnasite = "Bastnasite",
+  Barite = "Barite",
+  Bauxite = "Bauxite",
+  Bentonite = "Bentonite",
+  Beryllium = "Beryllium",
+  BrownLimonite = "BrownLimonite",
+  Calcite = "Calcite",
+  Cassiterite = "Cassiterite",
+  CertusQuartz = "CertusQuartz",
+  Chalcopyrite = "Chalcopyrite",
+  Cinnabar = "Cinnabar",
+  Coal = "Coal",
+  Cobaltite = "Cobaltite",
+  Copper = "Copper",
+  Diamond = "Diamond",
+  Emerald = "Emerald",
+  EnrichedNaquadah = "EnrichedNaquadah",
+  Galena = "Galena",
+  Garnierite = "Garnierite",
+  Glauconite = "Glauconite",
+  Gold = "Gold",
+  Graphite = "Graphite",
+  Grossular = "Grossular",
+  Ilmenite = "Ilmenite",
+  Iridium = "Iridium",
+  Iron = "Iron",
+  Lapis = "Lapis",
+  Lazurite = "Lazurite",
+  Lead = "Lead",
+  Lepidolite = "Lepidolite",
+  Lignite = "Lignite",
+  Lithium = "Lithium",
+  Magnesite = "Magnesite",
+  Magnetite = "Magnetite",
+  Malachite = "Malachite",
+  Manganese = "Manganese",
+  GreenSapphire = "GreenSapphire",
+  Molybdenite = "Molybdenite",
+  Molybdenum = "Molybdenum",
+  Monazite = "Monazite",
+  Naquadah = "Naquadah",
+  Neodymium = "Neodymium",
+  NetherQuartz = "NetherQuartz",
+  Nickel = "Nickel",
+  Olivine = "Olivine",
+  Palladium = "Palladium",
+  Pentlandite = "Pentlandite",
+  Phosphate = "Phosphate",
+  Phosphorus = "Phosphorus",
+  Pitchblende = "Pitchblende",
+  Platinum = "Platinum",
+  OilSands = "OilSands",
+  Powellite = "Powellite",
+  Pyrite = "Pyrite",
+  Pyrolusite = "Pyrolusite",
+  Pyrope = "Pyrope",
+  Quartz = "Quartz",
+  Quartzite = "Quartzite",
+  Redstone = "Redstone",
+  RockSalt = "RockSalt",
+  Ruby = "Ruby",
+  Salt = "Salt",
+  Sapphire = "Sapphire",
+  Scheelite = "Scheelite",
+  Sheldonite = "Sheldonite",
+  Silver = "Silver",
+  Soapstone = "Soapstone",
+  Sodalite = "Sodalite",
+  Spessartine = "Spessartine",
+  Sphalerite = "Sphalerite",
+  Spodumene = "Spodumene",
+  Stibnite = "Stibnite",
+  Sulflur = "Sulflur",
+  Talc = "Talc",
+  Tantalite = "Tantalite",
+  Tetrahedrite = "Tetrahedrite",
+  Thorium = "Thorium",
+  Tin = "Tin",
+  Tungstate = "Tungstate",
+  Uraninite = "Uraninite",
+  Uranium238 = "Uranium238",
+  VanadiumMagnetite = "VanadiumMagnetite",
+  Wulfenite = "Wulfenite",
+  YellowLimonit = "YellowLimonit"
+}
 
 function unknownEvent()
   -- do nothing if the event wasn't relevant
@@ -21,21 +129,12 @@ end
 -- table that holds all event handlers
 local myEventHandlers = setmetatable({}, { __index = function() return unknownEvent end })
 
--- Terminate handler
-function myEventHandlers.key_up(adress, char, code, playerName)
-  if (char == char_space) then
-    running = false
-  end
-  if (char == char_f) then
-    print('Next scan will be full.')
-    step = 1
-  end
-end
-
-function send(request)
+local function doRequest(uri, requestBody)
   local sendImpl = function()
-    local response = internet.request(serverUrl, request, { ["Content-Type"] = "application/json; charset=utf-8" })
+    local headers = requestBody and { ["Content-Type"] = "application/json; charset=utf-8" } or nil
+    local response = internet.request(serverUrl .. uri, requestBody, headers)
     for chunk in response do
+      term.write((not (chunk == nil)) and chunk or 'nil', true)
     end
   end
   local status, err = pcall(sendImpl)
@@ -44,110 +143,140 @@ function send(request)
   end
 end
 
-function sendPoints(startX, startY, startZ, step, values)
-  local requestPattern = [[{"StartX":"%d","StartY":"%d","StartZ":"%d","Step":"%d","hardnessValues":%s}]]
-  print("Uploading...")
-  local valuesString = "[" .. table.concat(values, ",") .. "]"
-  local request = string.format(requestPattern, startX, startY, startZ, step, valuesString)
-  send(request)
+local function getOreCandidates(line, pos)
+  local result = {}
+  for k,v in pairs(ores) do
+    if (string.sub(v,1,string.len(line))==line) then
+      table.insert(result, v)
+    end
+  end
+  return result
+end
+local function getNameFromUser()
+  term.write('> ')
+  userInput = true
+  local result = term.read(nil, true, getOreCandidates):sub(1, -2)
+  userInput = false
+  return result
 end
 
-function getHardness(scanResults, y)
-  local threshold = 0.2
-  if (antiNoise == 1) then return true, scanResults[1][y] end
-  if (antiNoise == 2) then
-    if math.abs(scanResults[1][y] - scanResults[2][y]) >= threshold then return false end
-    return true, (scanResults[1][y] + scanResults[2][y]) / 2
-  end
-  if (antiNoise >= 3) then
-    local median = 0
-    for i = 1, antiNoise do
-      median = median + scanResults[i][y]
-    end
-    median = median / antiNoise
-
-    local goodValues = {}
-    for i = 1, antiNoise do
-      if math.abs(median - scanResults[i][y]) < threshold then
-        table.insert(goodValues, scanResults[i][y])
-      end
-    end
-    if #goodValues < math.ceil( antiNoise/2 ) then return false end
-    local hardness = 0
-    for i = 1, #goodValues do
-      hardness = hardness + goodValues[i]
-    end
-    hardness = hardness / #goodValues
-    return true, hardness
-  end
+local function writeWithColor(color, text)
+  local oldColor = gpu.setForeground(color, true)
+  term.write(text)
+  return oldColor
 end
 
-function performScan(x, z)
-  local scanResults = {}
-  for i = 1, antiNoise do
-    scanResults[i] = geo.scan(x, z, 0, 0, 0, 0, true)
+local function oreNameIsValid(oreName)
+  for k,v in pairs(ores) do
+    if v == oreName then
+      return true
+    end
   end
-  os.sleep(0)
-  return scanResults
+  return false
 end
 
-function scan(x,y,z)
-  local scanResult = {}
-  local deltaX = math.floor(x/chunkSize) * chunkSize - x
-  local deltaZ = math.floor(z/chunkSize) * chunkSize - z
+local function errorSound()
+  computer.beep(800, 0.2)
+  computer.beep(800, 0.2)
+end
 
-  if (-deltaX < math.floor(chunkSize/2)-1) or
-     (-deltaX > math.floor(chunkSize/2)+1) or
-     (-deltaZ < math.floor(chunkSize/2)-1) or
-     (-deltaZ > math.floor(chunkSize/2)+1) then
-    print('Please, stay closer to the chunk center. You current offset is ('..deltaX..', '..deltaZ..')')
+local function successSound()
+  computer.beep(1500, 0.3)
+end
+
+local function sendBlock(data)
+  local originalForeground = writeWithColor(colors.green, 'Block ')
+  writeWithColor(colors.yellow, '('..data.posX..', '..data.posY..', '..data.posZ..')')
+  writeWithColor(colors.green, ' at ')
+  writeWithColor(colors.yellow, currentDimension)
+  writeWithColor(colors.green, '.\nPlease, enther the ore name:\n')
+  gpu.setForeground(originalForeground)
+  
+  local oreName = getNameFromUser()
+  if (oreNameIsValid(oreName)) then
+    local requestPattern = [[{"PosX":"%d","PosY":"%d","PosZ":"%d","Ore":"%s","Dimension":"%s"}]]
+    local request = string.format(requestPattern, data.posX, data.posY, data.posZ, oreName, currentDimension)
+    doRequest('blocks/add', request)
+    local originalForeground = writeWithColor(colors.green, 'Block saved\n')
+    gpu.setForeground(originalForeground)
+    successSound()
     return
   end
-  cx = deltaX
-  while cx < deltaX+chunkSize do
-    cz = deltaZ
-    while cz < deltaZ+chunkSize do
-      io.write("Scanning at (" .. cx-deltaX+1 .. ", " .. cz-deltaZ+1 .. ")")
-      local scanResults = performScan(cx, cz)
+  errorSound()
+end
 
-      for cy = 1, scanSize do
-        local posY = y - cy
-        if posY <= 0 then break end
-
-        while true do
-          local hardnessState, hardnessValue = getHardness(scanResults, cy)
-          if hardnessState then 
-            table.insert(scanResult, hardnessValue)
-            break
-          end
-          io.write(".")
-          scanResults = performScan(cx, cz)
-        end
-      end
-
-      cz = cz + step
-      io.write("\n")
-    end
-    sendPoints(x+cx, y, z+deltaZ, step, scanResult)
-    scanResult = {}
-    computer.beep(1000, 0.3)
-    os.sleep(0)
-    cx = cx + step
+local function find(data)
+  local originalForeground = writeWithColor(colors.green, 'Enter the ore to find:\n')
+  gpu.setForeground(originalForeground)
+  local oreName = getNameFromUser()
+  if (not oreNameIsValid(oreName)) then
+    errorSound()
+  else
+    local originalForeground = writeWithColor(colors.green, 'Search results:\n')
+    doRequest('blocks/find?dimension='..currentDimension..'&ore='..oreName..'&x='..data.posX..'&y='..data.posY..'&z='..data.posZ..'&limit=5')
+    gpu.setForeground(originalForeground)
   end
+end
 
-  
-  step = 4
+local function switchDimension()
+  for k,v in pairs(dimensions) do
+    if (v == currendDimension) then
+      currentDimension = dimensions[k+1]
+      if (currentDimension == nil) then
+        currentDimension = dimensions[1]
+      end
+      local originalForeground = writeWithColor(colors.green, 'Current dimension changed to ')
+      writeWithColor(colors.yellow, currentDimension)
+      writeWithColor(colors.green, '.\n')
+      gpu.setForeground(originalForeground)
+    end
+  end
 end
 
 -- Table use handler
 function myEventHandlers.tablet_use(data)
-  scan(data.posX, data.posY, data.posZ)
-  computer.beep(900, 0.3)
-  computer.beep(800, 0.3)
-  computer.beep(750, 0.3)
-  computer.beep(660, 0.3)
-  computer.beep(600, 0.5)
-  print("Complete.")
+  if (state == states.sendBlock) then
+    sendBlock(data)
+    return
+  end
+  if (state == states.find) then
+    find(data)
+    return
+  end
+end
+
+-- key_up handler
+function myEventHandlers.key_up(adress, char, code, playerName)
+  if (userInput) then
+    return
+  end
+
+  if (char == char_space) then
+    print('Exiting')
+    running = false
+    return
+  end
+
+  if (char == char_x) then
+    switchDimension()
+    return
+  end
+
+  if (char == char_s) then
+    if (not (state == states.sendBlock)) then
+      state = states.sendBlock
+      print('Send Block regime')
+    end
+    return
+  end
+
+  if (char == char_f) then
+    if (not (state == states.find)) then
+      state = states.find
+      print('Find regime')
+    end
+    return
+  end
 end
 
 -- The main event handler (entry)
