@@ -1,8 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using GeoNavigator.Server.Models;
 
-namespace GeoNavigator.Server.Models
+namespace GeoNavigator.Server.InitialData
 {
     internal class VeinBuilder
     {

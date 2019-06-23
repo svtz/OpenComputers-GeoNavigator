@@ -20,15 +20,43 @@ local char_space = string.byte(" ")
 local char_x = string.byte("x")
 local char_s = string.byte("s")
 local char_f = string.byte("f")
+local char_i = string.byte("i")
 
 local running = true
-local userInput = false
+local isInteractive = true
 
 local states = {
   sendBlock = "sendBlock",
-  find = "find"
+  find = "find",
+  info = "info"
 }
-local state = states.sendBlock
+local state
+
+local function writeWithColor(color, text)
+  local oldColor = gpu.setForeground(color, true)
+  term.write(text)
+  return oldColor
+end
+
+local function changeState(newState)
+  if (newState == states.sendBlock) then
+    local originalForeground = writeWithColor(colors.yellow, 'Scan ')
+    writeWithColor(colors.green, 'mode activated. Use the tablet to scan ores.\n')
+    gpu.setForeground(originalForeground)
+  end
+  if (newState == states.find) then
+    local originalForeground = writeWithColor(colors.yellow, 'Find ')
+    writeWithColor(colors.green, 'mode activated. Use the tablet to select a point for the search to begin.\n')
+    gpu.setForeground(originalForeground)
+  end
+  if (newState == states.info) then
+    local originalForeground = writeWithColor(colors.yellow, 'Info ')
+    writeWithColor(colors.green, 'mode activated. Use the tablet to select a point for the search to begin.\n')
+    gpu.setForeground(originalForeground)
+  end
+
+  state = newState
+end
 
 local dimensions = {
   "Overworld",
@@ -128,7 +156,7 @@ local ores = {
   Uranium238 = "Uranium238",
   VanadiumMagnetite = "VanadiumMagnetite",
   Wulfenite = "Wulfenite",
-  YellowLimonit = "YellowLimonit"
+  YellowLimonite = "YellowLimonite"
 }
 
 function unknownEvent()
@@ -139,17 +167,21 @@ end
 local myEventHandlers = setmetatable({}, { __index = function() return unknownEvent end })
 
 local function doRequest(uri, requestBody)
+  isInteractive = false
   local sendImpl = function()
     local headers = requestBody and { ["Content-Type"] = "application/json; charset=utf-8" } or nil
     local response = internet.request(serverUrl .. uri, requestBody, headers)
+    local oldColor = writeWithColor(colors.gray, "> ")
     for chunk in response do
       term.write((not (chunk == nil)) and chunk or 'nil', true)
     end
+    gpu.setForeground(oldColor)
   end
   local status, err = pcall(sendImpl)
   if not status then
     print(err)
   end
+  isInteractive = true
 end
 
 local function getOreCandidates(line, pos)
@@ -163,16 +195,10 @@ local function getOreCandidates(line, pos)
 end
 local function getNameFromUser()
   term.write('> ')
-  userInput = true
+  isInteractive = false
   local result = term.read(nil, true, getOreCandidates):sub(1, -2)
-  userInput = false
+  isInteractive = true
   return result
-end
-
-local function writeWithColor(color, text)
-  local oldColor = gpu.setForeground(color, true)
-  term.write(text)
-  return oldColor
 end
 
 local function oreNameIsValid(oreName)
@@ -209,9 +235,13 @@ local function sendBlock(data)
     local originalForeground = writeWithColor(colors.green, 'Block saved\n')
     gpu.setForeground(originalForeground)
     successSound()
+    changeState(states.sendBlock)
     return
   end
   errorSound()
+  local originalForeground = writeWithColor(colors.red, 'Ore is invalid\n')
+  gpu.setForeground(originalForeground)
+  changeState(states.sendBlock)
 end
 
 local function find(data)
@@ -220,16 +250,38 @@ local function find(data)
   local oreName = getNameFromUser()
   if (not oreNameIsValid(oreName)) then
     errorSound()
+    local originalForeground = writeWithColor(colors.red, 'Ore is invalid\n')
+    gpu.setForeground(originalForeground)
   else
     local originalForeground = writeWithColor(colors.green, 'Search results:\n')
     doRequest('blocks/find?dimension='..currentDimension..'&ore='..oreName..'&x='..data.posX..'&y='..data.posY..'&z='..data.posZ..'&limit=5')
     gpu.setForeground(originalForeground)
   end
+
+  changeState(states.find)
+end
+
+local function info()
+  local originalForeground = writeWithColor(colors.yellow, 'Info ')
+  writeWithColor(colors.green, 'mode. Enter the ore to view the vein info:\n')
+  gpu.setForeground(originalForeground)
+  local oreName = getNameFromUser()
+  if (not oreNameIsValid(oreName)) then
+    errorSound()
+    local originalForeground = writeWithColor(colors.red, 'Ore is invalid\n')
+    gpu.setForeground(originalForeground)
+  else
+    local originalForeground = writeWithColor(colors.green, 'Search results:\n')
+    doRequest('veins/info?dimension='..currentDimension..'&ore='..oreName)
+    gpu.setForeground(originalForeground)
+  end
+
+  changeState(state)
 end
 
 local function switchDimension()
   for k,v in pairs(dimensions) do
-    if (v == currendDimension) then
+    if (v == currentDimension) then
       currentDimension = dimensions[k+1]
       if (currentDimension == nil) then
         currentDimension = dimensions[1]
@@ -238,6 +290,7 @@ local function switchDimension()
       writeWithColor(colors.yellow, currentDimension)
       writeWithColor(colors.green, '.\n')
       gpu.setForeground(originalForeground)
+      return
     end
   end
 end
@@ -254,9 +307,9 @@ function myEventHandlers.tablet_use(data)
   end
 end
 
--- key_up handler
+
 function myEventHandlers.key_up(adress, char, code, playerName)
-  if (userInput) then
+  if (not isInteractive) then
     return
   end
 
@@ -272,18 +325,17 @@ function myEventHandlers.key_up(adress, char, code, playerName)
   end
 
   if (char == char_s) then
-    if (not (state == states.sendBlock)) then
-      state = states.sendBlock
-      print('Send Block regime')
-    end
+    changeState(states.sendBlock)
     return
   end
 
   if (char == char_f) then
-    if (not (state == states.find)) then
-      state = states.find
-      print('Find regime')
-    end
+    changeState(states.find)
+    return
+  end
+
+  if (char == char_i) then
+    info()
     return
   end
 end
@@ -297,6 +349,7 @@ end
 
 -- main event loop which processes all events, or sleeps if there is nothing to do
 print("Press <space> to exit.")
+changeState(states.sendBlock)
 while running do
   handleEvent(event.pull()) -- sleeps until an event is available, then process it
 end

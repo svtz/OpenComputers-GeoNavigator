@@ -1,12 +1,10 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using GeoNavigator.Server;
 using GeoNavigator.Server.Models;
 using Microsoft.AspNetCore.Mvc;
 
-namespace GeoNavigator.Controllers
+namespace GeoNavigator.Server.Controllers
 {
     [Route("api/[controller]/[action]")]
     public class BlocksController : Controller
@@ -87,7 +85,8 @@ namespace GeoNavigator.Controllers
             block.PosX = data.PosX;
             block.PosY = data.PosY;
             block.PosZ = data.PosZ;
-            _db.Blocks.Add(block);
+            if (block.Id == Guid.Empty)
+                _db.Blocks.Add(block);
             _db.SaveChanges();
         }
     }

@@ -32,11 +32,6 @@ namespace GeoNavigator.Server.InitialData
                 .Ores(Ore.Beryllium, Ore.Emerald, Ore.Thorium)
                 .SaveTo(_db);
             
-            new VeinBuilder(5, 30)
-                .Dimensions(Dimension.Overworld, Dimension.End, Dimension.Moon, Dimension.Mars, Dimension.Asteroids)
-                .Ores(Ore.Beryllium, Ore.Emerald, Ore.Thorium)
-                .SaveTo(_db);
-            
             new VeinBuilder(40, 120)
                 .Dimensions(Dimension.Overworld, Dimension.End, Dimension.Moon, Dimension.Mars, Dimension.Asteroids)
                 .Ores(Ore.Tin, Ore.Cassiterite)
